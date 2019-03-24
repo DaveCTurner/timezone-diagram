@@ -24,9 +24,6 @@ axisFreeEndMargin = 11
 transitionPointRadius :: Double
 transitionPointRadius = 2.5
 
-transitionHeight :: Double
-transitionHeight = 100
-
 axisLineWidth :: Double
 axisLineWidth = 2.0
 
@@ -60,9 +57,6 @@ getTargetWidth = liftRender $ withTargetSurface $ \surface -> fromIntegral <$> i
 getTargetHeight :: TimeLineGraph Double
 getTargetHeight = liftRender $ withTargetSurface $ \surface -> fromIntegral <$> imageSurfaceGetHeight surface
 
-getCentreOffset :: TimeLineGraph Double
-getCentreOffset = asks _tlgcCentreOffset
-
 type Point = (Double, Double)
 
 getBounds :: TimeLineGraph (Point, Point, Point)
@@ -77,28 +71,32 @@ getBounds = do
 
   return ((xMin, yMin), ((xMin + xMax) / 2.0, (yMin + yMax) / 2.0), (xMax, yMax))
 
-earliestCoordsFromOffset :: Offset -> TimeLineGraph (Double, Double)
-earliestCoordsFromOffset off = do
-  centreOffset <- getCentreOffset
-  ((xMin, _), (xc, yc), (_, yMax)) <- getBounds
-  let ycOffset = yc - centreOffset + doubleFromOffset off
-      lineLength = min (xc - xMin) (yMax - ycOffset)
-  return (xc - lineLength, ycOffset + lineLength)
+{-| Y coordinate of the timeline with the given offset at UTC time 0 (i.e. in centre) -}
+getTimelineYInCentre :: Offset -> TimeLineGraph Double
+getTimelineYInCentre (Offset offPixels) = do
+  centreOffset <- asks _tlgcCentreOffset
+  (_, (_, yc), _) <- getBounds
+  return $ yc - centreOffset + offPixels
 
-latestCoordsFromOffset :: Offset -> TimeLineGraph (Double, Double)
-latestCoordsFromOffset off = do
-  centreOffset <- getCentreOffset
-  ((_, yMin), (xc, yc), (xMax, _)) <- getBounds
-  let ycOffset = yc - centreOffset + doubleFromOffset off
-      lineLength = min (xMax - xc) (ycOffset - yMin)
-  return (xc + lineLength, ycOffset - lineLength)
-
-coordsFromOffset :: Double -> Offset -> TimeLineGraph (Double, Double)
+coordsFromOffset :: Double -> Offset -> TimeLineGraph Point
 coordsFromOffset x off = do
-  centreOffset <- getCentreOffset
-  (_, (xc, yc), _) <- getBounds
-  let ycOffset = yc - centreOffset + doubleFromOffset off
-  return (xc + x, ycOffset - x)
+  timelineYInCentre <- getTimelineYInCentre off
+  (_, (xc, _), _) <- getBounds
+  return (xc + x, timelineYInCentre - x)
+
+earliestCoordsFromOffset :: Offset -> TimeLineGraph Point
+earliestCoordsFromOffset off = do
+  timelineYInCentre <- getTimelineYInCentre off
+  ((xMin, _), (xc, _), (_, yMax)) <- getBounds
+  let lineLength = min (xc - xMin) (yMax - timelineYInCentre)
+  return (xc - lineLength, timelineYInCentre + lineLength)
+
+latestCoordsFromOffset :: Offset -> TimeLineGraph Point
+latestCoordsFromOffset off = do
+  timelineYInCentre <- getTimelineYInCentre off
+  ((_, yMin), (xc, yc), (xMax, _)) <- getBounds
+  let lineLength = min (xMax - xc) (timelineYInCentre - yMin)
+  return (xc + lineLength, timelineYInCentre - lineLength)
 
 drawBeforeTransition :: Double -> Offset -> TimeLineGraph ()
 drawBeforeTransition x off = do
