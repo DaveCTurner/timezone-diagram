@@ -9,6 +9,12 @@ import Graphics.Rendering.Cairo.Matrix (Matrix(..))
 import Graphics.Rendering.Pango
 import Control.Monad
 
+{-| Offset from UTC -}
+newtype Offset = Offset { doubleFromOffset :: Double }
+
+utcOffset :: Offset
+utcOffset = Offset 0
+
 axisOriginMargin :: Double
 axisOriginMargin = 50
 
@@ -61,7 +67,6 @@ type Point = (Double, Double)
 
 getBounds :: TimeLineGraph (Point, Point, Point)
 getBounds = do
-  centreOffset <- getCentreOffset
   w <- getTargetWidth
   h <- getTargetHeight
 
@@ -72,30 +77,30 @@ getBounds = do
 
   return ((xMin, yMin), ((xMin + xMax) / 2.0, (yMin + yMax) / 2.0), (xMax, yMax))
 
-earliestCoordsFromOffset :: Double -> TimeLineGraph (Double, Double)
+earliestCoordsFromOffset :: Offset -> TimeLineGraph (Double, Double)
 earliestCoordsFromOffset off = do
   centreOffset <- getCentreOffset
   ((xMin, _), (xc, yc), (_, yMax)) <- getBounds
-  let ycOffset = yc - centreOffset + off
+  let ycOffset = yc - centreOffset + doubleFromOffset off
       lineLength = min (xc - xMin) (yMax - ycOffset)
   return (xc - lineLength, ycOffset + lineLength)
 
-latestCoordsFromOffset :: Double -> TimeLineGraph (Double, Double)
+latestCoordsFromOffset :: Offset -> TimeLineGraph (Double, Double)
 latestCoordsFromOffset off = do
   centreOffset <- getCentreOffset
   ((_, yMin), (xc, yc), (xMax, _)) <- getBounds
-  let ycOffset = yc - centreOffset + off
+  let ycOffset = yc - centreOffset + doubleFromOffset off
       lineLength = min (xMax - xc) (ycOffset - yMin)
   return (xc + lineLength, ycOffset - lineLength)
 
-coordsFromOffset :: Double -> Double -> TimeLineGraph (Double, Double)
+coordsFromOffset :: Double -> Offset -> TimeLineGraph (Double, Double)
 coordsFromOffset x off = do
   centreOffset <- getCentreOffset
   (_, (xc, yc), _) <- getBounds
-  let ycOffset = yc - centreOffset + off
+  let ycOffset = yc - centreOffset + doubleFromOffset off
   return (xc + x, ycOffset - x)
 
-drawBeforeTransition :: Double -> Double -> TimeLineGraph ()
+drawBeforeTransition :: Double -> Offset -> TimeLineGraph ()
 drawBeforeTransition x off = do
   (x0, y0) <- earliestCoordsFromOffset off
   (x1, y1) <- coordsFromOffset x off
@@ -108,7 +113,7 @@ drawBeforeTransition x off = do
     arc x1 y1 transitionPointRadius 0 (2*pi)
     stroke
 
-drawAfterTransition :: Double -> Double -> TimeLineGraph ()
+drawAfterTransition :: Double -> Offset -> TimeLineGraph ()
 drawAfterTransition t off = do
   (x0, y0) <- coordsFromOffset t off
   (x1, y1) <- latestCoordsFromOffset off
@@ -159,7 +164,7 @@ drawAxes = do
       moveTo (x0 - x1 - (yMin + 2*arrowSize)) (xMin - y1 - 10)
       showLayout pangoLayout
 
-drawConversion :: Double -> Double -> TimeLineGraph ()
+drawConversion :: Double -> Offset -> TimeLineGraph ()
 drawConversion tUTC offset = do
   ((xMin, _), _, (_, yMax)) <- getBounds
   (x,y) <- coordsFromOffset tUTC offset
@@ -189,7 +194,7 @@ drawDiagram fileName width height centreOffset go =
     surfaceWriteToPNG surface fileName
     return result
 
-arrowFromUTC :: Double -> Double -> Double -> TimeLineGraph ()
+arrowFromUTC :: Double -> Offset -> Double -> TimeLineGraph ()
 arrowFromUTC t off d = do
   (x,y) <- coordsFromOffset t off
   liftRender $ do
@@ -199,7 +204,7 @@ arrowFromUTC t off d = do
     lineTo (x-arrowSize) (y+d+arrowSize*2)
     fill
 
-arrowToLocal :: Double -> Double -> Double -> TimeLineGraph ()
+arrowToLocal :: Double -> Offset -> Double -> TimeLineGraph ()
 arrowToLocal t off d = do
   (x,y) <- coordsFromOffset t off
   liftRender $ do
@@ -209,7 +214,7 @@ arrowToLocal t off d = do
     lineTo (x-d) (y-arrowSize)
     fill
 
-arrowToUTC :: Double -> Double -> Double -> TimeLineGraph ()
+arrowToUTC :: Double -> Offset -> Double -> TimeLineGraph ()
 arrowToUTC t off d = do
   (x,y) <- coordsFromOffset t off
   liftRender $ do
@@ -219,7 +224,7 @@ arrowToUTC t off d = do
     lineTo (x-arrowSize) (y+d)
     fill
 
-arrowFromLocal :: Double -> Double -> Double -> TimeLineGraph ()
+arrowFromLocal :: Double -> Offset -> Double -> TimeLineGraph ()
 arrowFromLocal t off d = do
   (x,y) <- coordsFromOffset t off
   liftRender $ do
@@ -229,10 +234,10 @@ arrowFromLocal t off d = do
     lineTo (x-d-2*arrowSize) (y-arrowSize)
     fill
 
-drawConstantOffset :: Double -> TimeLineGraph ()
+drawConstantOffset :: Offset -> TimeLineGraph ()
 drawConstantOffset off = drawConstantOffsetWithStyle off $ setLineWidth timeLineWidth
 
-drawConstantOffsetWithStyle :: Double -> Render () -> TimeLineGraph ()
+drawConstantOffsetWithStyle :: Offset -> Render () -> TimeLineGraph ()
 drawConstantOffsetWithStyle off applyStyle = do
   (x0, y0) <- earliestCoordsFromOffset off
   (x1, y1) <- latestCoordsFromOffset   off
@@ -244,11 +249,11 @@ drawConstantOffsetWithStyle off applyStyle = do
 
 drawUTC :: TimeLineGraph ()
 drawUTC = do
-  drawConstantOffsetWithStyle 0 $ do
+  drawConstantOffsetWithStyle utcOffset $ do
     setLineWidth timeLineWidth
     setSourceRGB 0.7 0.7 0.7
     setDash [5,5] 0
-  (x,y) <- latestCoordsFromOffset 0
+  (x,y) <- latestCoordsFromOffset utcOffset
   liftRender $ do
     setSourceRGB 0.7 0.7 0.7
     pangoLayout <- createLayout "UTC"
@@ -260,7 +265,7 @@ drawUTC = do
     moveTo ((x-y) / sqrt 2 - (x1-x0)) ((x+y) / sqrt 2 + 2)
     showLayout pangoLayout
 
-drawOffset :: Double -> Double -> Double -> TimeLineGraph ()
+drawOffset :: Double -> Offset -> Offset -> TimeLineGraph ()
 drawOffset t off0 off1 = do
   arrowFromUTC t off0 0
   arrowToUTC   t off1 ((-2) * arrowSize)
@@ -273,12 +278,13 @@ drawOffset t off0 off1 = do
     lineTo x1 y1
     stroke
 
-drawHorizOffset :: Double -> Double -> Double -> TimeLineGraph ()
-drawHorizOffset t off0 off1 = do
-  arrowToLocal   t off0 ((-2) * arrowSize)
-  arrowFromLocal (t-off0) off1 0
-  (x0,y0) <- coordsFromOffset t        off0
-  (x1,y1) <- coordsFromOffset (t-off0) off1
+drawHorizOffset :: Double -> Offset -> Offset -> TimeLineGraph ()
+drawHorizOffset t0 off0 off1 = do
+  let t1 = t0 - doubleFromOffset off0
+  arrowToLocal   t0 off0 ((-2) * arrowSize)
+  arrowFromLocal t1 off1 0
+  (x0,y0) <- coordsFromOffset t0 off0
+  (x1,y1) <- coordsFromOffset t1 off1
   liftRender $ do
     setLineWidth timeLineWidth
     setColourRed
@@ -288,7 +294,7 @@ drawHorizOffset t off0 off1 = do
 
 drawGrid :: Double -> TimeLineGraph ()
 drawGrid spacing = do
-  (x0,y0) <- coordsFromOffset 0 0
+  (x0,y0) <- coordsFromOffset 0 utcOffset
   ((xMin, yMin), _, (xMax, yMax)) <- getBounds
   liftRender $ do
     setLineWidth 1
