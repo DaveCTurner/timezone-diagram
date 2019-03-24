@@ -37,8 +37,8 @@ arrowSize :: Double
 arrowSize = 5.0
 
 data TimeLineGraphConfig = TimeLineGraphConfig
-  { _tlgcCentreOffset :: Double
-  , _tlgcRenderSetup :: Render ()
+  { _tlgcCentreOffset :: Offset
+  , _tlgcRenderSetup  :: Render ()
   }
 
 newtype TimeLineGraph a = TimeLineGraph { runTimeLineGraph :: ReaderT TimeLineGraphConfig Render a }
@@ -76,10 +76,10 @@ getBounds = do
 
 {-| Y coordinate of the timeline with the given offset at UTC time 0 (i.e. in centre) -}
 getTimelineYInCentre :: Offset -> TimeLineGraph Double
-getTimelineYInCentre (Offset offPixels) = do
+getTimelineYInCentre timelineOffset = do
   centreOffset <- asks _tlgcCentreOffset
   (_, (_, yc), _) <- getBounds
-  return $ yc - centreOffset + offPixels
+  return $ yc - doubleFromOffset centreOffset + doubleFromOffset timelineOffset
 
 coordsFromOffset :: UTime -> Offset -> TimeLineGraph Point
 coordsFromOffset (UTime x) off = do
@@ -184,7 +184,7 @@ setColourBlue = setSourceRGB (45/255) (112/255) (171/255)
 setColourRed :: Render ()
 setColourRed = setSourceRGB (182/255) (62/255) (69/255)
 
-drawDiagram :: String -> Int -> Int -> Double -> TimeLineGraph a -> IO a
+drawDiagram :: String -> Int -> Int -> Offset -> TimeLineGraph a -> IO a
 drawDiagram fileName width height centreOffset go =
   withImageSurface FormatARGB32 width height $ \surface -> do
     result <- renderWith surface $ flip runReaderT TimeLineGraphConfig
@@ -307,3 +307,23 @@ drawGrid spacing = do
     mapM_ hLine $ takeWhile (<= yMax) $ map (\i -> y0 + i * spacing) [0..]
     mapM_ hLine $ takeWhile (>= yMin) $ map (\i -> y0 - i * spacing) [0..]
 
+showLocalTime :: String -> UTime -> Offset -> TimeLineGraph ()
+showLocalTime label t off = do
+    ((xMin, _), _, (xMax, _)) <- getBounds
+    (_,y) <- coordsFromOffset t off
+    liftRender $ do
+      setLineWidth timeLineWidth
+      setSourceRGB 0.7 0.7 0.7
+      setDash [5,5] 0
+      moveTo xMin y
+      lineTo xMax y
+      stroke
+
+    liftRender $ do
+      pangoLayout <- createLayout label
+      liftIO $ do
+        fontDescription <- fontDescriptionFromString "Sans 8"
+        layoutSetFontDescription pangoLayout $ Just fontDescription
+      PangoRectangle x0 y0 x1 y1 <- liftIO $ fst <$> layoutGetExtents pangoLayout
+      moveTo (xMin + 2) (y - 6 - (y1 - y0))
+      showLayout pangoLayout
